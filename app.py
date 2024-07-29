@@ -84,7 +84,7 @@ class NordVPN:
     \t\t\t\t                                           
             {Style.RESET_ALL}''')
 
-    def user_proxy(self):
+        def user_proxy(self):
         self.data['use_proxy'] = True
 
         print(f'[{Fore.CYAN}>{Style.RESET_ALL}] Please choose proxy text file. ')
@@ -96,6 +96,17 @@ class NordVPN:
             proxy_type = int(input(f'[{Fore.CYAN}?{Style.RESET_ALL}] HTTPS[{Fore.CYAN}0{Style.RESET_ALL}]/SOCKS4[{Fore.CYAN}1{Style.RESET_ALL}]/SOCKS5[{Fore.CYAN}2{Style.RESET_ALL}] > '))
 
         except ValueError:
+            print(f'[{Fore.CYAN}>{Style.RESET_ALL}] Value error! Please choose 0, 1, or 2!')
+            time.sleep(3)
+            self.user_proxy()
+
+        if proxy_type == 0:
+            self.data['proxy_type'] = 'https'
+        elif proxy_type == 1:
+            self.data['proxy_type'] = 'ocks4'
+        elif proxy_type == 2:
+            self.data['proxy_type'] = 'ocks5'
+        else:
             print(f'[{Fore.CYAN}>{Style.RESET_ALL}] Value error! Please choose 0, 1, or 2!')
             time.sleep(3)
             self.user_proxy()
